@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
+import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
 import { supabase } from "../../utils/supabase/client";
@@ -18,8 +19,9 @@ export function Admin() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
-  const loadData = async () => {
+  const loadData = async (searchTerm = "") => {
     setLoading(true);
     setError(null);
 
@@ -28,21 +30,37 @@ export function Admin() {
       navigate("/login");
       return;
     }
+    // Verify current user's role separately so searches that don't include the admin
+    // won't accidentally cause a redirect.
+    const { data: myProfile, error: myProfileError } = await supabase
+      .from("user_profiles")
+      .select("role")
+      .eq("id", session.data.session?.user.id)
+      .maybeSingle();
 
-    const { data: profileData, error: profileError } = await supabase
+    if (myProfileError || !myProfile || myProfile.role !== "admin") {
+      navigate("/dashboard");
+      return;
+    }
+
+    // Now fetch the list (limited preview of 10). Apply search filters only to the list query.
+    let listQuery = supabase
       .from("user_profiles")
       .select("id, username, email, role, created_at")
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(10);
+
+    if (searchTerm && searchTerm.trim()) {
+      // search by username or email (case-insensitive)
+      // Supabase JS doesn't have a typed .or chain on the query builder return, cast to any
+      listQuery = (listQuery as any).or(`username.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
+    }
+
+    const { data: profileData, error: profileError } = await listQuery;
 
     if (profileError) {
       setError(profileError.message);
       setLoading(false);
-      return;
-    }
-
-    const currentProfile = profileData.find((p) => p.id === session.data.session?.user.id);
-    if (!currentProfile || currentProfile.role !== "admin") {
-      navigate("/dashboard");
       return;
     }
 
@@ -53,6 +71,10 @@ export function Admin() {
   useEffect(() => {
     void loadData();
   }, []);
+
+  const onSearch = async () => {
+    await loadData(search);
+  };
 
   const handleDelete = async (userId: string) => {
     setError(null);
@@ -75,6 +97,11 @@ export function Admin() {
         <div>
           <h1 className="text-3xl font-bold mb-2">Admin Control Center</h1>
           <p className="text-gray-600">Manage users and monitor sensors in real time.</p>
+          <div className="mt-3 flex gap-2">
+            <Input placeholder="Search by name or email" value={search} onChange={(e: any) => setSearch(e.target.value)} />
+            <Button onClick={onSearch} disabled={loading}>{loading ? 'Searching...' : 'Search'}</Button>
+            <Button variant="ghost" onClick={() => { setSearch(''); void loadData(); }}>Clear</Button>
+          </div>
         </div>
 
         {error && (
@@ -103,32 +130,34 @@ export function Admin() {
             ) : profiles.length === 0 ? (
               <p className="text-sm text-gray-500">No users found.</p>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Registered</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {profiles.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell>{user.username || "(no name)"}</TableCell>
-                      <TableCell>{user.email}</TableCell>
-                      <TableCell>{user.role}</TableCell>
-                      <TableCell>{new Date(user.created_at).toLocaleString()}</TableCell>
-                      <TableCell className="text-right space-x-2">
-                        <Button size="sm" variant="destructive" onClick={() => handleDelete(user.id)}>
-                          Delete
-                        </Button>
-                      </TableCell>
+              <div className="max-h-80 overflow-y-auto border rounded">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Role</TableHead>
+                      <TableHead>Registered</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {profiles.map((user) => (
+                      <TableRow key={user.id}>
+                        <TableCell>{user.username || "(no name)"}</TableCell>
+                        <TableCell>{user.email}</TableCell>
+                        <TableCell>{user.role}</TableCell>
+                        <TableCell>{new Date(user.created_at).toLocaleString()}</TableCell>
+                        <TableCell className="text-right space-x-2">
+                          <Button size="sm" variant="destructive" onClick={() => handleDelete(user.id)}>
+                            Delete
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             )}
           </CardContent>
         </Card>
