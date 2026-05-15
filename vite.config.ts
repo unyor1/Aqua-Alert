@@ -22,7 +22,7 @@ export default defineConfig({
       // During local development proxy /api/overpass to the Overpass interpreter
       // so the browser doesn't run into CORS issues. This only applies to dev server.
       '/api/overpass': {
-        target: 'https://overpass-api.de',
+        target: 'https://lz4.overpass-api.de',
         changeOrigin: true,
         secure: true,
         rewrite: (path) => path.replace(/^\/api\/overpass/, '/api/interpreter'),
