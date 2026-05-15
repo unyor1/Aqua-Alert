@@ -69,8 +69,7 @@ export default function EvacFinder() {
   const fetchNearbyFacilities = async (lat: number, lon: number, radius = 2500) => {
     setSuggestedPlaces([]);
     try {
-      const query = `[
-out:json][timeout:25];
+      const query = `[out:json][timeout:25];
 (
   node(around:${radius},${lat},${lon})["amenity"="school"];
   node(around:${radius},${lat},${lon})["amenity"="community_centre"];
@@ -86,7 +85,11 @@ out center;`;
         headers: isDev ? { 'Content-Type': 'text/plain' } : { 'Content-Type': 'application/json' },
         body: isDev ? query : JSON.stringify({ query }),
       });
-      if (!resp.ok) return;
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => '(no body)');
+        console.warn('Overpass proxy returned', resp.status, text);
+        return;
+      }
       const data = await resp.json();
       if (!data.elements) return;
       const items = data.elements
