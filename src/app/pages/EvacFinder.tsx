@@ -80,8 +80,12 @@ out:json][timeout:25];
   node(around:${radius},${lat},${lon})["building"="hall"];
 );
 out center;`;
-      const url = "https://overpass-api.de/api/interpreter";
-      const resp = await fetch(url, { method: "POST", body: query, headers: { "Content-Type": "text/plain" } });
+      const isDev = import.meta.env.DEV;
+      const resp = await fetch('/api/overpass', {
+        method: 'POST',
+        headers: isDev ? { 'Content-Type': 'text/plain' } : { 'Content-Type': 'application/json' },
+        body: isDev ? query : JSON.stringify({ query }),
+      });
       if (!resp.ok) return;
       const data = await resp.json();
       if (!data.elements) return;
