@@ -17,6 +17,19 @@ export default defineConfig({
     },
   },
 
+  server: {
+    proxy: {
+      // During local development proxy /api/overpass to the Overpass interpreter
+      // so the browser doesn't run into CORS issues. This only applies to dev server.
+      '/api/overpass': {
+        target: 'https://overpass-api.de',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/api\/overpass/, '/api/interpreter'),
+      },
+    },
+  },
+
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
 })
