@@ -82,7 +82,9 @@ out center;`;
       const isDev = import.meta.env.DEV;
       const resp = await fetch('/api/overpass', {
         method: 'POST',
-        headers: isDev ? { 'Content-Type': 'text/plain' } : { 'Content-Type': 'application/json' },
+        headers: isDev
+          ? { 'Content-Type': 'text/plain', 'Accept': 'application/json', 'User-Agent': 'FloodAlertApp/1.0 (contact@yourdomain.com)' }
+          : { 'Content-Type': 'application/json' },
         body: isDev ? query : JSON.stringify({ query }),
       });
       if (!resp.ok) {
