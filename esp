@@ -1,0 +1,128 @@
+#define BLYNK_TEMPLATE_ID "TMPL6v5wDLiOt"
+#define BLYNK_TEMPLATE_NAME "Flood Alert"
+#define BLYNK_AUTH_TOKEN "y9yDp_Vs8UEOWZFKgHMvoxEf2GVrmPuX"
+
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <BlynkSimpleEsp32.h>
+#include <ArduinoJson.h>
+
+// Power Management
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
+
+// --- Credentials ---
+char auth[] = BLYNK_AUTH_TOKEN;
+char ssid[] = "Angel";
+char pass[] = "03781489";
+
+const char* SUPABASE_URL    = "https://bicfojnelsdzuybdtcyd.supabase.co";
+const char* SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJpY2Zvam5lbHNkenV5YmR0Y3lkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3NzYxNjYsImV4cCI6MjA5MTM1MjE2Nn0.QpSd_yvPKYtDIj2Fou5A3eHXGIeH43Z8jVTgrqyeIAE";
+const char* DEVICE_ID       = "esp32-sensor-01";
+
+// --- Pins ---
+#define TRIG_PIN    5
+#define ECHO_PIN    21
+#define LED_PIN     2
+#define BUZZER_PIN  4
+
+// --- State ---
+BlynkTimer timer;
+int currentDistance = 0;
+
+
+
+void addSupabaseHeaders(HTTPClient& http) {
+  http.addHeader("apikey", SUPABASE_ANON_KEY);
+  http.addHeader("Authorization", String("Bearer ") + SUPABASE_ANON_KEY);
+  http.addHeader("Content-Type", "application/json");
+}
+
+void postSensorLog(int distance) {
+  if (WiFi.status() != WL_CONNECTED) return;
+
+  WiFiClientSecure client;
+  client.setInsecure(); // Required for HTTPS without managing certificates
+
+  HTTPClient http;
+  String url = String(SUPABASE_URL) + "/rest/v1/sensor_logs";
+  
+  if (http.begin(client, url)) {
+    addSupabaseHeaders(http);
+    
+    StaticJsonDocument<128> doc;
+    doc["device_id"]   = DEVICE_ID;
+    doc["water_level"] = distance;
+
+    String payload;
+    serializeJson(doc, payload);
+
+    int code = http.POST(payload);
+    Serial.printf("[Supabase] Logged: %d cm (HTTP %d)\n", distance, code);
+    http.end();
+  }
+}
+
+// ─── Main Logic ───────────────────────────────────────────────────────────────
+
+void processFloodData() {
+  // 1. Read Ultrasonic Sensor
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  long duration = pulseIn(ECHO_PIN, HIGH);
+  if (duration == 0) return;
+
+  currentDistance = duration * 0.034 / 2;
+  Serial.printf("Distance: %d cm\n", currentDistance);
+
+  // 2. Update Blynk
+  if (Blynk.connected()) {
+    Blynk.virtualWrite(V0, currentDistance);
+  }
+
+  // 3. Local Alert Logic (No Blynk Notifications)
+  if (currentDistance > 0 && currentDistance <= 20) {
+    tone(BUZZER_PIN, 3000);
+    digitalWrite(LED_PIN, !digitalRead(LED_PIN)); // Blink LED
+  } else {
+    noTone(BUZZER_PIN);
+    digitalWrite(LED_PIN, LOW);
+  }
+}
+
+// Timer-driven function for Database to avoid flooding the network
+void syncWithDatabase() {
+  postSensorLog(currentDistance);
+}
+
+// ─── Setup & Loop ─────────────────────────────────────────────────────────────
+
+void setup() {
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // Disable brownout trigger
+  
+  Serial.begin(115200);
+  pinMode(TRIG_PIN,   OUTPUT);
+  pinMode(ECHO_PIN,   INPUT);
+  pinMode(LED_PIN,    OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+
+  // Initialize Blynk (non-blocking style)
+  Blynk.begin(auth, ssid, pass);
+
+  // Interval settings:
+  // Sensor & Blynk updates fast (every 1 second)
+  timer.setInterval(1000L, processFloodData); 
+  
+  // Supabase updates slower (every 5 seconds) to maintain stability
+  timer.setInterval(1000L, syncWithDatabase); 
+}
+
+void loop() {
+  Blynk.run();
+  timer.run();
+}

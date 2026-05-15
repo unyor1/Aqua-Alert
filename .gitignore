@@ -1,0 +1,49 @@
+# Node modules
+node_modules/
+
+# Build output
+dist/
+.build/
+.vite/
+
+# Local environment variables
+.env
+.env.local
+.env.*.local
+
+# Log files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Vite cache
+node_modules/.vite/
+
+# Optional npm cache directory
+.npm/
+
+# MacOS
+.DS_Store
+
+# Editor directories and files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Misc
+coverage/
+pids/
+*.seed
+*.pid
+*.pid.lock
+
+# Supabase local development files
+supabase/.cache/
+
+# Generated lock files (if using pnpm and not committed)
+pnpm-lock.yaml
