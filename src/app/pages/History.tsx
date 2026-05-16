@@ -38,12 +38,22 @@ export function History() {
     // eslint-disable-next-line no-console
     console.log("Apply clicked, current range:", range);
     setApplyAnimating(true);
-    setAppliedRange(range);
+    // clone range so React state updates even if the reference didn't change
+    setAppliedRange(
+      range
+        ? {
+            from: range.from ? new Date(range.from) : undefined,
+            to: range.to ? new Date(range.to) : undefined,
+          }
+        : undefined,
+    );
+    setPopoverOpen(false);
     // short animation, then stop
     setTimeout(() => setApplyAnimating(false), 600);
   };
 
   const [applyAnimating, setApplyAnimating] = useState(false);
+  const [popoverOpen, setPopoverOpen] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -57,19 +67,31 @@ export function History() {
 
         // don't set welcome here; Dashboard will show the welcome message by name
 
-      let query: any = supabase
-        .from("sensor_logs")
-        .select("created_at, water_level")
-        .order("created_at", { ascending: true })
-        .limit(100);
+      // build query: select -> apply date filters -> order -> limit
+      let query: any = supabase.from("sensor_logs").select("created_at, water_level");
 
       if (appliedRange && appliedRange.from) {
-        query = query.gte("created_at", appliedRange.from.toISOString());
+        const start = new Date(appliedRange.from);
+        start.setHours(0, 0, 0, 0);
+        query = query.gte("created_at", start.toISOString());
+        // if user selected only a single day (no `to`), apply upper bound for that same day
+        if (!appliedRange.to) {
+          const singleEnd = new Date(appliedRange.from);
+          singleEnd.setHours(23, 59, 59, 999);
+          query = query.lte("created_at", singleEnd.toISOString());
+        }
       }
       if (appliedRange && appliedRange.to) {
         const end = new Date(appliedRange.to);
         end.setHours(23, 59, 59, 999);
         query = query.lte("created_at", end.toISOString());
+      }
+
+      // If the user applied a date filter, fetch more rows to avoid dropping older days
+      if (appliedRange) {
+        query = query.order("created_at", { ascending: false }).limit(1000);
+      } else {
+        query = query.order("created_at", { ascending: false }).limit(100);
       }
 
       const { data: logs, error } = await query;
@@ -78,7 +100,10 @@ export function History() {
         return;
       }
 
-      if (!logs) return;
+      if (!logs) {
+        if (isMounted) setReadings([]);
+        return;
+      }
 
       const parsedReadings = logs.map((log: any) => {
         const raw = Number(log.water_level) || 0;
@@ -89,7 +114,9 @@ export function History() {
         };
       });
 
-      if (isMounted) setReadings(parsedReadings);
+      // ensure chronological order for charts (oldest -> newest)
+      const sortedReadings = parsedReadings.sort((a: WaterReading, b: WaterReading) => a.timestamp.getTime() - b.timestamp.getTime());
+      if (isMounted) setReadings(sortedReadings);
     };
 
     void loadReadings();
@@ -100,10 +127,11 @@ export function History() {
   }, [navigate, appliedRange]);
 
   // Prepare chart data
+  const multiDayRange = !!(appliedRange && appliedRange.from && appliedRange.to && !isSameDay(appliedRange.from, appliedRange.to));
+
   const chartData = readings.map((reading) => ({
-    time: reading.timestamp.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+    timestampMs: reading.timestamp.getTime(),
     level: reading.level,
-    date: reading.timestamp.toLocaleDateString(),
   }));
 
   const maxLevel = readings.length > 0 ? Math.max(...readings.map((r) => r.level)) : 0;
@@ -120,7 +148,7 @@ export function History() {
           </div>
 
           <div className="flex items-center gap-3">
-            <Popover>
+            <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
               <PopoverTrigger asChild>
                 <button className="inline-flex items-center gap-2 rounded-md border bg-background px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground">
                   <CalendarIcon className="w-4 h-4" />
@@ -151,6 +179,8 @@ export function History() {
                       variant="ghost"
                       onClick={() => {
                         setRange(undefined);
+                        setAppliedRange(undefined);
+                        setPopoverOpen(false);
                       }}
                     >
                       Clear
@@ -221,15 +251,29 @@ export function History() {
                 <ResponsiveContainer width="100%" height={300}>
                   <AreaChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="time" tick={{ fontSize: 12 }} interval="preserveStartEnd" />
+                    <XAxis
+                      dataKey="timestampMs"
+                      type="number"
+                      tick={{ fontSize: 12 }}
+                      domain={["dataMin", "dataMax"]}
+                      tickFormatter={(val: number) =>
+                        multiDayRange
+                          ? new Date(val).toLocaleDateString()
+                          : new Date(val).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
+                      }
+                    />
                     <YAxis label={{ value: "Water Level (cm)", angle: -90, position: "insideLeft" }} />
                     <Tooltip
                       content={({ active, payload }) => {
                         if (active && payload && payload.length) {
+                          const ts = payload[0].payload.timestampMs;
+                          const d = new Date(ts);
+                          const dateStr = d.toLocaleDateString();
+                          const timeStr = d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
                           return (
                             <div className="bg-white p-3 border rounded-lg shadow-lg">
-                              <p className="text-sm font-medium">{payload[0].payload.date}</p>
-                              <p className="text-sm">{payload[0].payload.time}</p>
+                              <p className="text-sm font-medium">{dateStr}</p>
+                              <p className="text-sm">{timeStr}</p>
                               <p className="text-sm font-bold text-blue-600">Level: {payload[0].value} cm</p>
                             </div>
                           );
