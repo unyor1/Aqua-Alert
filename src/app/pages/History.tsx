@@ -61,7 +61,7 @@ export function History() {
         .from("sensor_logs")
         .select("created_at, water_level")
         .order("created_at", { ascending: true })
-        .limit(1000);
+        .limit(100);
 
       if (appliedRange && appliedRange.from) {
         query = query.gte("created_at", appliedRange.from.toISOString());
@@ -80,10 +80,14 @@ export function History() {
 
       if (!logs) return;
 
-      const parsedReadings = logs.map((log: any) => ({
-        timestamp: new Date(log.created_at),
-        level: log.water_level,
-      }));
+      const parsedReadings = logs.map((log: any) => {
+        const raw = Number(log.water_level) || 0;
+        const reversed = Math.max(0, Math.min(100, 100 - raw));
+        return {
+          timestamp: new Date(log.created_at),
+          level: reversed,
+        };
+      });
 
       if (isMounted) setReadings(parsedReadings);
     };
